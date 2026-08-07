@@ -4,7 +4,7 @@ go 1.26.3
 
 require (
 	github.com/prometheus/client_golang v1.24.1
-	github.com/prometheus/prometheus v0.313.1
+	github.com/prometheus/prometheus v0.313.2
 	go.yaml.in/yaml/v3 v3.0.5
 )
 
