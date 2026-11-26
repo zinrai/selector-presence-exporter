@@ -53,13 +53,13 @@ The scrape interval is the only timer. The collection has no interval, cache, or
 
 ## Usage
 
-Pass rule files as arguments and the server to query with `--endpoint`, the full instant query URL.
+Pass the rule files as a glob pattern with `--rule-files` and the server to query with `--endpoint`, the full instant query URL. Quote the pattern so that the exporter expands it rather than the shell.
 
 ```
 selector-presence-exporter \
+  --rule-files 'rules/*.yml' \
   --endpoint http://localhost:8428/api/v1/query \
-  --listen :9099 \
-  rules/*.yml
+  --listen :9099
 ```
 
 The `/metrics` output looks like:

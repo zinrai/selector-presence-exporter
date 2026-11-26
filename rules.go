@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/prometheus/prometheus/promql/parser"
 	"go.yaml.in/yaml/v3"
@@ -33,6 +34,17 @@ type ruleSpec struct {
 // Shared rather than created per call or per scrape: it only holds Options, and ParseExpr creates and
 // closes a low-level parser internally on each call, so sharing is safe even under concurrent scrapes.
 var exprParser = parser.NewParser(parser.Options{})
+
+func ruleFilePaths(pattern string) ([]string, error) {
+	paths, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("--rule-files %q: %w", pattern, err)
+	}
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("--rule-files %q matches no file", pattern)
+	}
+	return paths, nil
+}
 
 func loadSelectors(ruleFiles []string) []ruleSelector {
 	var all []ruleSelector

@@ -34,9 +34,14 @@ func run(args []string) error {
 		return nil
 	}
 
+	paths, err := ruleFilePaths(cfg.ruleFiles)
+	if err != nil {
+		return err
+	}
+
 	client := &http.Client{Timeout: queryTimeout}
 	c := &collector{
-		selectors: func() []ruleSelector { return loadSelectors(cfg.ruleFiles) },
+		selectors: func() []ruleSelector { return loadSelectors(paths) },
 		query:     httpQuerier(client, cfg.endpoint),
 	}
 	prometheus.MustRegister(c)
