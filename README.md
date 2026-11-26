@@ -4,11 +4,15 @@ An exporter that extracts the metric selectors from Prometheus alert rules and, 
 
 ## Why this exists
 
+Once an alert rule is set, it is seldom reviewed again, so noticing that what it selects no longer exists depends on whoever set it.
+
 The most dangerous monitoring failure is an alert that should fire but stays silent. A false alarm gets noticed and fixed. Silence produces nothing to notice.
 
 When an alert expression returns no series, both Prometheus and vmalert read that as "everything is fine" and do not fire. There is no error and no failed-evaluation counter, because an empty result is not an error. See the [Prometheus alerting rules docs](https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/) and [PromLabs on missing time series](https://promlabs.com/blog/2023/09/13/dealing-with-missing-time-series-in-prometheus/), which notes this is especially dangerous for "too-low" alerts that watch for a value dropping.
 
 The quietest moment for this to happen is a version upgrade of a metrics component, when a metric is renamed or removed deep in a third-party changelog. node_exporter 0.16.0 renamed many metrics to follow naming conventions, breaking existing dashboards and alerts (see the [0.16 upgrade guide](https://github.com/prometheus/node_exporter/blob/master/docs/V0_16_UPGRADE_GUIDE.md) and [issue #830](https://github.com/prometheus/node_exporter/issues/830)). A renamed selector does not error. It silently returns empty, and the alert quietly stops working.
+
+A rename is one way to get there. A rule left behind after what it watched was retired, or a selector that never matched in the first place, ends in the same state: the selector resolves nowhere. The exporter reports that state, not which of these caused it.
 
 Both [Cloudflare](https://blog.cloudflare.com/monitoring-our-monitoring/) and [VictoriaMetrics](https://victoriametrics.com/blog/never-firing-alerts/) describe this exact silent failure from their own operations.
 
@@ -67,27 +71,31 @@ selector_presence_endpoint_up 1
 
 `present` (1) means the instant query returned a series. When the server cannot be queried, `selector_presence_endpoint_up` becomes 0 and no present is emitted, so a stopped server is not mistaken for absence.
 
-Turning the fact into an alert is left to the consumer. For example, to fire only on a selector that was present in the past but is absent now:
+Turning the fact into an alert is left to the consumer. Two queries over the gauge history split the absent selectors by whether they resolved within a window:
 
 ```promql
-# Example consumer alert: present in the past but absent now, while the server is reachable.
+# Present within the window but absent now, while the server is reachable.
 selector_presence == 0
   and max_over_time(selector_presence[7d]) == 1
   and on() selector_presence_endpoint_up == 1
+
+# Absent for the whole window.
+max_over_time(selector_presence[7d]) == 0
 ```
 
-A selector that is legitimately empty in normal operation keeps `max_over_time` at 0, so it never fires.
+The first is a selector that stopped resolving. Once the window has passed it moves to the second, which also holds rules left behind, selectors that never matched, and selectors that are legitimately empty in normal operation. Which of those a selector is, and so whether to fix the source, fix the rule, or leave it, is a decision about the rule.
 
 ## Design
 
-- **The verdict stays outside the tool.** present / absent is emitted as a continuous gauge, so a consumer can tell a normal absence apart from a real disappearance in PromQL over the gauge history (the example above). The exporter therefore implements no lookback of its own and sticks to observing.
+- **The verdict stays outside the tool.** present / absent is emitted as a continuous gauge, so a consumer can tell a normal absence apart from a real disappearance in PromQL over the gauge history (the queries above). The exporter therefore implements no lookback of its own and sticks to observing.
 - **The endpoint URL is used as-is.** Only the `query` parameter is added, so no API path is baked into the tool. Any server, tenant path (such as a VictoriaMetrics `/select/<id>/prometheus/api/v1/query`), or reverse-proxy layout works without per-server logic. The cost is that the caller provides the full path and the tool cannot check it points at the instant query endpoint.
 - **Queries run sequentially, each with a per-query timeout.** No concurrency is added. Disappearance detection can be slow, and a single in-flight query at a time is gentlest on a shared server. The per-query timeout keeps one hung query from stalling the rest and letting the whole scrape die by timeout with the period's data wiped out, and that one query is treated as an error so the others survive. Collection duration is absorbed by the scrape config, not by a scheduler inside the tool. If a single collection outgrows a sensible `scrape_timeout`, first raise the timeout, then move to concurrent queries, and only then to a separate interval plus cache. Concurrency is a future escape hatch for when the selector count grows by an order of magnitude.
 - **A custom client_golang Collector.** Because the label value is a selector string with quotes and regexps that need escaping, a custom Collector is used instead of writing the text format by hand. It also rebuilds the output on every scrape, so selectors removed from the rules leave no stale series. PromQL parsing is delegated to prometheus/prometheus with a shared, effectively stateless parser.
 
 ## Limitations
 
-- **Normal absence cannot be told apart automatically.** A selector that is legitimately empty in normal operation (dynamic cardinality such as `status=~"5.."`) also returns `present=0`, and the tool does not distinguish that from a real disappearance. This is inherent to checking existence by query, and [pint acknowledges the same limitation](https://blog.cloudflare.com/monitoring-our-monitoring/). Handle it with the `max_over_time` form above or an allow-list on the alert side.
+- **Normal absence cannot be told apart automatically.** A selector that is legitimately empty in normal operation (dynamic cardinality such as `status=~"5.."`) also returns `present=0`, and the tool does not distinguish that from a real disappearance. This is inherent to checking existence by query, and [pint acknowledges the same limitation](https://blog.cloudflare.com/monitoring-our-monitoring/). Handle it with the first query above or an allow-list on the alert side.
+- **Presence is checked across the whole server.** A selector that still resolves on some targets counts as present, so one that stopped resolving on only part of them is not seen.
 - **This is presence, not correctness.** It confirms that a selector returns a series but does not verify the thresholds or logic of the alert expression. That is the domain of unit tests.
 
 ## License
