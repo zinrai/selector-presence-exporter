@@ -46,12 +46,18 @@ func ruleFilePaths(pattern string) ([]string, error) {
 	return paths, nil
 }
 
-func loadSelectors(ruleFiles []string) []ruleSelector {
+// The pattern is expanded here, on every call, rather than once at startup: files added or removed
+// while the exporter runs would otherwise be missed until a restart.
+func loadSelectors(pattern string) ([]ruleSelector, error) {
+	paths, err := ruleFilePaths(pattern)
+	if err != nil {
+		return nil, err
+	}
 	var all []ruleSelector
-	for _, path := range ruleFiles {
+	for _, path := range paths {
 		all = append(all, fileSelectors(path)...)
 	}
-	return dedupe(all)
+	return dedupe(all), nil
 }
 
 // fileSelectors logs a parse error but still returns the selectors that parsed, so one typo does not

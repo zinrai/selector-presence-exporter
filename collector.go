@@ -20,7 +20,7 @@ var (
 // A custom Collector, not a set of pre-registered gauges, so that selectors removed from the rules
 // leave no stale series: each scrape rebuilds the output from a fresh read.
 type collector struct {
-	selectors func() []ruleSelector
+	selectors func() ([]ruleSelector, error)
 	query     querier
 }
 
@@ -30,7 +30,13 @@ func (c *collector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (c *collector) Collect(ch chan<- prometheus.Metric) {
-	samples, up := observe(c.selectors(), c.query)
+	rules, err := c.selectors()
+	if err != nil {
+		// Not an empty result: that would pass for a healthy scrape while nothing is checked.
+		ch <- prometheus.NewInvalidMetric(presentDesc, err)
+		return
+	}
+	samples, up := observe(rules, c.query)
 	for _, s := range samples {
 		ch <- prometheus.MustNewConstMetric(presentDesc, prometheus.GaugeValue,
 			boolToFloat(s.present), s.group, s.alert, s.selector)

@@ -34,14 +34,15 @@ func run(args []string) error {
 		return nil
 	}
 
-	paths, err := ruleFilePaths(cfg.ruleFiles)
-	if err != nil {
+	// Not left to the first scrape: a pattern that matches nothing would start cleanly and only
+	// show as a failing scrape later.
+	if _, err := ruleFilePaths(cfg.ruleFiles); err != nil {
 		return err
 	}
 
 	client := &http.Client{Timeout: queryTimeout}
 	c := &collector{
-		selectors: func() []ruleSelector { return loadSelectors(paths) },
+		selectors: func() ([]ruleSelector, error) { return loadSelectors(cfg.ruleFiles) },
 		query:     httpQuerier(client, cfg.endpoint),
 	}
 	prometheus.MustRegister(c)

@@ -40,14 +40,14 @@ One instance validates one alert rule set against one server: the server those r
 
 On every scrape (collect-on-scrape), it:
 
-1. reads the rule files and extracts every selector from the `alert:` exprs, keeping the matchers and ignoring `record:` rules,
+1. expands the `--rule-files` pattern, reads the files it matches and extracts every selector from the `alert:` exprs, keeping the matchers and ignoring `record:` rules,
 2. removes duplicate selectors,
 3. sends one instant query per selector to the server, wrapped in `count()` so that the response holds one value rather than every matching series,
 4. exposes two gauges:
    - `selector_presence{group, alert, selector}` is 1 when the instant query is non-empty, 0 when empty,
    - `selector_presence_endpoint_up` is 1 when the server could be queried, 0 when it could not.
 
-A selector used by several alerts is queried once and fanned out to each alert, so the output keeps the (group, alert, selector) granularity. A failed query emits no present for its selectors and sets `endpoint_up=0`, so a stopped server is not read as absence.
+A selector used by several alerts is queried once and fanned out to each alert, so the output keeps the (group, alert, selector) granularity. A failed query emits no present for its selectors and sets `endpoint_up=0`, so a stopped server is not read as absence. A pattern that matches no file fails the scrape, so the exporter's own `up` goes to 0 rather than an empty result passing for a healthy one.
 
 The scrape interval is the only timer. The collection has no interval, cache, or staleness of its own, and its duration is left to the `scrape_interval` / `scrape_timeout` of a scrape job dedicated to this exporter.
 

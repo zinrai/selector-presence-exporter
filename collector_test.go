@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
@@ -17,7 +18,7 @@ func TestCollectPresentAbsentFanout(t *testing.T) {
 		{"phy", "Stock", `phy_stock{status="free"}`},
 	}
 	c := &collector{
-		selectors: func() []ruleSelector { return rules },
+		selectors: func() ([]ruleSelector, error) { return rules, nil },
 		query: func(sel string) (bool, error) {
 			return sel == "consul_raft_leader", nil
 		},
@@ -41,7 +42,7 @@ selector_presence_endpoint_up 1
 func TestCollectErrorIsNotAbsent(t *testing.T) {
 	rules := []ruleSelector{{"g", "A", "up"}}
 	c := &collector{
-		selectors: func() []ruleSelector { return rules },
+		selectors: func() ([]ruleSelector, error) { return rules, nil },
 		query: func(_ string) (bool, error) {
 			return false, errors.New("connection refused")
 		},
@@ -53,5 +54,18 @@ selector_presence_endpoint_up 0
 `
 	if err := testutil.CollectAndCompare(c, strings.NewReader(want), "selector_presence", "selector_presence_endpoint_up"); err != nil {
 		t.Error(err)
+	}
+}
+
+// Rule files that cannot be listed fail the scrape instead of producing an empty one.
+func TestCollectNoRuleFilesFailsTheScrape(t *testing.T) {
+	c := &collector{
+		selectors: func() ([]ruleSelector, error) { return nil, errors.New("matches no file") },
+		query:     func(_ string) (bool, error) { return true, nil },
+	}
+	reg := prometheus.NewPedanticRegistry()
+	reg.MustRegister(c)
+	if _, err := reg.Gather(); err == nil {
+		t.Error("Gather succeeded, want an error")
 	}
 }
