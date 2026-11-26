@@ -38,7 +38,7 @@ On every scrape (collect-on-scrape), it:
 
 1. reads the rule files and extracts every selector from the `alert:` exprs, keeping the matchers and ignoring `record:` rules,
 2. removes duplicate selectors,
-3. sends one instant query per selector to the server,
+3. sends one instant query per selector to the server, wrapped in `count()` so that the response holds one value rather than every matching series,
 4. exposes two gauges:
    - `selector_presence{group, alert, selector}` is 1 when the instant query is non-empty, 0 when empty,
    - `selector_presence_endpoint_up` is 1 when the server could be queried, 0 when it could not.

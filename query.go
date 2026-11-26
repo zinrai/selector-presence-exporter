@@ -32,7 +32,9 @@ func queryPresent(client *http.Client, queryURL, selector string) (bool, error) 
 		return false, err
 	}
 	q := u.Query()
-	q.Set("query", selector)
+	// Not the bare selector: that returns every matching series with its labels, while only
+	// whether there is at least one is read from the response.
+	q.Set("query", "count("+selector+")")
 	u.RawQuery = q.Encode()
 
 	resp, err := client.Get(u.String())
